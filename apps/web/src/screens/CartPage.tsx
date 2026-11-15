@@ -303,10 +303,6 @@ export default function CartPage() {
       await promotion.confirm();
       if (version !== loadVersion.current) return;
       localStorage.setItem("brewlite_checkout_selection", JSON.stringify(selectedIds));
-      if (!user) {
-        router.push("/login?next=%2Fcart");
-        return;
-      }
       router.push("/checkout");
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Không thể xác nhận giá", "error");

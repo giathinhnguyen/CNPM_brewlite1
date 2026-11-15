@@ -120,29 +120,95 @@ export class InventoryService {
     iceLevel: DrinkLevel = 'HUNDRED',
     tx: Prisma.TransactionClient = this.prisma,
   ) {
-    try {
-      const { usage } = await this.requirements(tx, [
-        { productSizeId, quantity: 1, sweetnessLevel, iceLevel },
-      ]);
-      let available = 10000;
-      for (const item of usage) {
-        const stock = await tx.ingredientStock.findUniqueOrThrow({
-          where: { ingredientId: item.ingredientId },
-        });
-        available = Math.min(
-          available,
-          stock.onHand
-            .minus(stock.reserved)
-            .div(item.quantity)
-            .floor()
-            .toNumber(),
-        );
+    const result = await this.availabilityMany(
+      [{ productSizeId, quantity: 1, sweetnessLevel, iceLevel }],
+      tx,
+    );
+    return result.get(`${productSizeId}:${sweetnessLevel}:${iceLevel}`) ?? 0;
+  }
+
+  /**
+   * Computes availability for many sizes with one database read.
+   * The products endpoint used to call availability() once per size, which
+   * reloaded the recipe and stock rows for every item.
+   */
+  async availabilityMany(
+    lines: InventoryLine[],
+    tx: Prisma.TransactionClient = this.prisma,
+  ) {
+    const sizeIds = [...new Set(lines.map((line) => line.productSizeId))];
+    const sizes = await tx.productSize.findMany({
+      where: { id: { in: sizeIds } },
+      include: {
+        product: { include: { category: true } },
+        customizationPolicies: true,
+        ingredients: { include: { ingredient: { include: { stock: true } } } },
+      },
+    });
+    const byId = new Map(sizes.map((size) => [size.id, size]));
+    const result = new Map<string, number>();
+
+    for (const line of lines) {
+      const size = byId.get(line.productSizeId);
+      const sweetness = line.sweetnessLevel ?? 'HUNDRED';
+      const ice = line.iceLevel ?? 'HUNDRED';
+      const key = `${line.productSizeId}:${sweetness}:${ice}`;
+      const setResult = (value: number) => {
+        result.set(key, value);
+        if (!result.has(line.productSizeId)) result.set(line.productSizeId, value);
+      };
+      try {
+        if (
+          !size ||
+          !size.isActive ||
+          !size.product.isActive ||
+          !size.product.category.isActive ||
+          !size.ingredients.length
+        ) {
+          setResult(0);
+          continue;
+        }
+
+        let policyValid = true;
+        for (const [axis, value] of [
+          ['SUGAR', sweetness],
+          ['ICE', ice],
+        ] as const) {
+          const policy = size.customizationPolicies.find((item) => item.axis === axis);
+          if (!policy || !policy.allowedLevels.includes(levelPercent[value])) {
+            policyValid = false;
+            break;
+          }
+        }
+        if (!policyValid) {
+          setResult(0);
+          continue;
+        }
+
+        let available = 10000;
+        for (const recipe of size.ingredients) {
+          const stock = recipe.ingredient.stock;
+          if (!recipe.ingredient.isActive || !stock || recipe.quantity.lte(0)) {
+            available = 0;
+            break;
+          }
+          const multiplier = recipe.adjustmentGroup === 'SUGAR'
+            ? levelPercent[sweetness] / 100
+            : 1;
+          const required = recipe.quantity.toNumber() * multiplier;
+          if (required <= 0) continue;
+          available = Math.min(
+            available,
+            Math.floor(stock.onHand.minus(stock.reserved).toNumber() / required),
+          );
+        }
+        setResult(Math.max(0, available));
+      } catch (error) {
+        if (error instanceof BadRequestException) setResult(0);
+        else throw error;
       }
-      return Math.max(0, available);
-    } catch (error) {
-      if (error instanceof BadRequestException) return 0;
-      throw error;
     }
+    return result;
   }
 
   async reserve(

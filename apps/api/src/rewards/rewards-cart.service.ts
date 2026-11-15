@@ -22,7 +22,6 @@ import {
 export class RewardsCartService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly carts: CartsService,
     private readonly promotions: PromotionsService,
     private readonly inventory: InventoryService = new InventoryService(prisma),
   ) {}
@@ -33,63 +32,114 @@ export class RewardsCartService {
   }
 
   async getCart(userId: string, tx: Prisma.TransactionClient = this.prisma) {
-    const base =
-      tx === this.prisma
-        ? await this.carts.getCart(userId)
-        : await this.originalCart(tx).getCart(userId);
     const metadata = await tx.cartItem.findMany({
       where: { userId },
-      include: {
-        rewardRedemption: { include: { rewardProduct: true } },
-        product: { include: { category: true } },
-        productSize: true,
-        toppings: { include: { topping: true } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        productId: true,
+        productSizeId: true,
+        sweetnessLevel: true,
+        iceLevel: true,
+        quantity: true,
+        note: true,
+        isSelected: true,
+        rewardRedemptionId: true,
+        product: {
+          select: {
+            name: true,
+            imageUrl: true,
+            basePrice: true,
+            isActive: true,
+            category: { select: { isActive: true } },
+          },
+        },
+        productSize: {
+          select: { size: true, priceAdjustment: true, isActive: true, productId: true },
+        },
+        toppings: {
+          select: {
+            topping: { select: { id: true, name: true, price: true, isActive: true } },
+          },
+        },
+        rewardRedemption: {
+          select: {
+            totalPointsSpent: true,
+            status: true,
+            orderId: true,
+            userId: true,
+            rewardProduct: { select: { isActive: true, productSizeId: true } },
+          },
+        },
       },
     });
-    const byId = new Map(metadata.map((item) => [item.id, item]));
-    const items = await Promise.all(
-      base.items.map(async (item) => {
-        const source = byId.get(item.id);
-        const reward = source?.rewardRedemption;
+    const availability = await this.inventory.availabilityMany(
+      metadata.map((item) => ({
+        productSizeId: item.productSizeId,
+        quantity: 1,
+        sweetnessLevel: item.sweetnessLevel,
+        iceLevel: item.iceLevel,
+      })),
+      tx,
+    );
+    const items = metadata.map((source) => {
+        const reward = source.rewardRedemption;
         const invalidReward = Boolean(
           reward &&
           (reward.status !== 'PENDING' ||
             reward.orderId !== null ||
             reward.userId !== userId ||
             !reward.rewardProduct.isActive ||
-            reward.rewardProduct.productSizeId !== item.productSizeId ||
-            item.quantity !== 1 ||
-            item.toppings.length !== 0),
+            reward.rewardProduct.productSizeId !== source.productSizeId ||
+            source.quantity !== 1 ||
+            source.toppings.length !== 0),
         );
-        const available = await this.inventory.availability(
-          item.productSizeId,
-          item.sweetnessLevel,
-          item.iceLevel,
-          tx,
-        );
+        const availabilityKey = `${source.productSizeId}:${source.sweetnessLevel}:${source.iceLevel}`;
+        const available = availability.get(availabilityKey) ?? 0;
         // Không dùng cờ tồn kho sản phẩm của giỏ cũ: admin quản lý kho nguyên liệu.
         const isOutOfStock =
-          !source ||
           !source.product.isActive ||
           !source.productSize.isActive ||
           !source.product.category.isActive ||
-          source.productSize.productId !== item.productId ||
+          source.productSize.productId !== source.productId ||
           source.toppings.some((entry) => !entry.topping.isActive) ||
-          available < item.quantity ||
+          available < source.quantity ||
           invalidReward;
-        const unitPrice = reward ? 0 : item.unitPrice;
+        const toppingsPrice = source.toppings.reduce(
+          (sum, entry) => sum + Number(entry.topping.price),
+          0,
+        );
+        const unitPrice = reward
+          ? 0
+          : Number(source.product.basePrice) +
+            Number(source.productSize.priceAdjustment) +
+            toppingsPrice;
         return {
-          ...item,
+          id: source.id,
+          productId: source.productId,
+          productName: source.product.name,
+          imageUrl: source.product.imageUrl,
+          size: source.productSize.size,
+          productSizeId: source.productSizeId,
+          sweetnessLevel: source.sweetnessLevel,
+          iceLevel: source.iceLevel,
+          quantity: source.quantity,
+          note: source.note,
+          isSelected: source.isSelected,
           unitPrice,
-          totalPrice: unitPrice * item.quantity,
+          totalPrice: unitPrice * source.quantity,
+          toppings: source.toppings.map((entry) => ({
+            id: entry.topping.id,
+            name: entry.topping.name,
+            price: Number(entry.topping.price),
+          })),
           isOutOfStock,
           stockQuantity: available,
           isReward: Boolean(reward),
           rewardPoints: reward?.totalPointsSpent ?? null,
-          rewardRedemptionId: source?.rewardRedemptionId ?? null,
+          rewardRedemptionId: source.rewardRedemptionId,
         };
-      }),
-    );
+      });
     return {
       items,
       totalAmount: items.reduce(

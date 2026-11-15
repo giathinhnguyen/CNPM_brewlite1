@@ -32,7 +32,7 @@ import {
 } from "../services/orderService";
 
 export default function CheckoutPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [items, setItems] = useState<CheckoutItem[]>([]);
   const [quote, setQuote] = useState<CartQuote | null>(null);
@@ -50,6 +50,11 @@ export default function CheckoutPage() {
   const [pendingSnapshot, setPendingSnapshot] = useState<Record<string, unknown> | null>(null);
   const storageKey = `brewlite_checkout_attempt:${user?.id}`;
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      router.replace("/login?next=%2Fcheckout");
+      return;
+    }
     let active = true;
     void (async () => {
       try {
@@ -104,7 +109,7 @@ export default function CheckoutPage() {
     return () => {
       active = false;
     };
-  }, [storageKey]);
+  }, [authLoading, router, storageKey, user]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
