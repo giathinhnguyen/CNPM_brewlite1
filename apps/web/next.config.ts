@@ -12,6 +12,7 @@ process.env.NEXT_PUBLIC_API_URL ??= process.env.VITE_API_URL ?? 'http://localhos
 process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ??= process.env.VITE_GOOGLE_CLIENT_ID;
 
 const config: NextConfig = {
+  devIndicators: false,
   output: process.env.NEXT_STANDALONE === 'true' ? 'standalone' : undefined,
   outputFileTracingRoot: workspaceRoot,
   turbopack: { root: workspaceRoot },
