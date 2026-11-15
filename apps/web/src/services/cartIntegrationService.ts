@@ -1,6 +1,6 @@
 import { authenticatedFetch, TOKEN_KEY } from "./session.ts";
 
-const API_BASE = import.meta.env?.VITE_API_URL || "http://localhost:3000/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api";
 const GUEST_CART_KEY = "brewlite_guest_cart";
 
 export function getCartOwner(): string {

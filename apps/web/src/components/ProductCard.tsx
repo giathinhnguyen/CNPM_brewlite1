@@ -1,17 +1,20 @@
+"use client";
+
 import { ArrowUpRight, Plus } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { formatCurrency } from "../lib/utils.ts";
 import type { Product } from "../types";
 import { Button } from "./ui";
 
 export default function ProductCard({ product }: { product: Product }) {
-  const navigate = useNavigate();
+  const router = useRouter();
   const outOfStock = product.stockQuantity <= 0;
 
   return (
     <article className="group overflow-hidden rounded-[1.75rem] border border-[#e4dad0] bg-white shadow-[0_12px_40px_rgba(68,44,32,0.06)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_18px_48px_rgba(68,44,32,0.12)]">
       <Link
-        to={`/products/${product.id}`}
+        href={`/products/${product.id}`}
       className="relative block aspect-[4/3] overflow-hidden bg-[#e9e1d7]"
         aria-label={`Xem ${product.name}`}
       >
@@ -45,7 +48,7 @@ export default function ProductCard({ product }: { product: Product }) {
             {product.category.name}
           </span>
         </div>
-        <Link to={`/products/${product.id}`}>
+        <Link href={`/products/${product.id}`}>
           <h2 className="mt-1.5 font-serif text-[1.25rem] leading-snug text-[#302018] transition group-hover:text-[#71503d]">
             {product.name}
           </h2>
@@ -62,7 +65,7 @@ export default function ProductCard({ product }: { product: Product }) {
           <Button
             size="sm"
             disabled={outOfStock}
-            onClick={() => navigate(`/products/${product.id}`)}
+            onClick={() => router.push(`/products/${product.id}`)}
             aria-label={`Tùy chỉnh ${product.name}`}
           >
             <Plus size={16} /> <span className="hidden sm:inline">Thêm</span>

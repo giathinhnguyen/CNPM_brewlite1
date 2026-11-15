@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useRef, useState } from "react";
 import { Button, ButtonLink, InlineNotice } from "./ui";
 import { orderService, type Order } from "../services/orderService";

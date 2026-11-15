@@ -1,3 +1,5 @@
+"use client";
+
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
@@ -12,7 +14,7 @@ import {
   Search,
   ShoppingBag,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import Link from "next/link";
 import { cx } from "../lib/utils";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -63,7 +65,7 @@ export function ButtonLink({
 }) {
   return (
     <Link
-      to={to}
+      href={to}
       className={cx(
         "inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#b9845a]/25",
         variant === "primary" &&
@@ -204,7 +206,7 @@ export function ErrorState({
 export function Logo() {
   return (
     <Link
-      to="/"
+      href="/"
       className="group inline-flex items-center gap-2.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#b9845a]/25"
       aria-label="BrewLite - Trang chủ"
     >

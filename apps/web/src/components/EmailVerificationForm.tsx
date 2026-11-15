@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useState, type FormEvent } from "react";
 import { authService, AuthApiError, type RegistrationChallenge } from "../services/authService";
 import { Button } from "./ui";

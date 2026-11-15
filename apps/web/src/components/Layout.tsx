@@ -1,3 +1,5 @@
+"use client";
+
 import { useAuth } from "../contexts/AuthContext";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -12,7 +14,9 @@ import {
   Mail,
   Clock3,
 } from "lucide-react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { NavLink } from "../components/Navigation";
 import { cx } from "../lib/utils";
 import { cartService } from "../services/cartService";
 
@@ -22,13 +26,13 @@ const navItems = [
   { label: "Đơn hàng", to: "/orders", enabled: true },
 ];
 
-export default function Layout() {
+export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth();
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
-  const location = useLocation();
+  const pathname = usePathname();
   const owner = user?.id ?? "guest";
   const [cartSummary, setCartSummary] = useState<{ owner: string; count: number } | null>(null);
   const cartCount = !loading && cartSummary?.owner === owner ? cartSummary.count : 0;
@@ -59,7 +63,7 @@ export default function Layout() {
       window.removeEventListener("focus", refreshCount);
       window.removeEventListener("storage", storageChanged);
     };
-  }, [owner, loading, location.pathname]);
+  }, [owner, loading, pathname]);
 
   function handleLogout() {
     logout();
@@ -89,7 +93,7 @@ export default function Layout() {
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
     };
-  }, [location.pathname]);
+  }, [pathname]);
 
   return (
     <div className="flex min-h-screen flex-col bg-[#faf7f2] font-sans text-[#35251e]">
@@ -98,7 +102,7 @@ export default function Layout() {
         <div className="mx-auto flex h-[76px] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           {/* LOGO */}
           <Link
-            to="/"
+            href="/"
             className="group flex shrink-0 items-center gap-2.5"
             aria-label="BrewLite - Trang chủ"
           >
@@ -144,7 +148,7 @@ export default function Layout() {
           <div className="flex items-center gap-2">
             {/* ĐÃ MỞ KHÓA GIỎ HÀNG */}
             <Link
-              to="/cart"
+              href="/cart"
               aria-label={`Giỏ hàng của bạn, ${cartCount} món`}
               title="Xem giỏ hàng"
               className="relative grid size-11 place-items-center rounded-full border border-[#e3d8cd] bg-white text-[#493227] transition hover:border-[#aa8b75] hover:bg-[#f5eee7]"
@@ -197,7 +201,7 @@ export default function Layout() {
                         <p className="mt-1 break-words text-xs text-[#8b776b]">
                           {user.email}
                         </p>
-                        <Link to="/account" role="menuitem" className="mt-3 block text-sm underline">Tài khoản của tôi</Link>
+                        <Link href="/account" role="menuitem" className="mt-3 block text-sm underline">Tài khoản của tôi</Link>
                       </div>
 
                       <button
@@ -217,7 +221,7 @@ export default function Layout() {
 
                       <Link
                         role="menuitem"
-                        to="/login"
+                        href="/login"
                         onClick={() => setAccountOpen(false)}
                         className="flex items-center justify-between rounded-xl bg-[#3b241c] px-4 py-3 text-sm font-semibold text-white hover:bg-[#56372a]"
                       >
@@ -227,7 +231,7 @@ export default function Layout() {
 
                       <Link
                         role="menuitem"
-                        to="/register"
+                        href="/register"
                         onClick={() => setAccountOpen(false)}
                         className="mt-2 flex items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-[#4b3529] hover:bg-[#f5f0ea]"
                       >
@@ -294,7 +298,7 @@ export default function Layout() {
                     <p className="mt-1 break-words text-xs text-[#8b776b]">
                       {user.email}
                     </p>
-                    <Link to="/account" className="mt-3 block text-sm underline">Tài khoản của tôi</Link>
+                    <Link href="/account" className="mt-3 block text-sm underline">Tài khoản của tôi</Link>
                   </div>
 
                   <button
@@ -308,7 +312,7 @@ export default function Layout() {
               ) : (
                 <>
                   <Link
-                    to="/login"
+                    href="/login"
                     onClick={() => setMobileOpen(false)}
                     className="rounded-xl px-4 py-3 text-sm font-semibold text-[#624c3e] hover:bg-[#eee6dc]"
                   >
@@ -316,7 +320,7 @@ export default function Layout() {
                   </Link>
 
                   <Link
-                    to="/register"
+                    href="/register"
                     onClick={() => setMobileOpen(false)}
                     className="rounded-xl px-4 py-3 text-sm font-semibold text-[#624c3e] hover:bg-[#eee6dc]"
                   >
@@ -331,7 +335,7 @@ export default function Layout() {
 
       {/* PAGE CONTENT */}
       <main className="w-full flex-1">
-        <Outlet />
+        {children}
       </main>
 
       {/* FOOTER */}
@@ -339,7 +343,7 @@ export default function Layout() {
         <div className="mx-auto grid max-w-7xl gap-12 px-5 py-14 md:grid-cols-[1.5fr_1fr_1fr] md:px-8">
           {/* BRAND */}
           <div>
-            <Link to="/" className="inline-flex items-center gap-2.5">
+            <Link href="/" className="inline-flex items-center gap-2.5">
               <span className="grid size-10 place-items-center rounded-xl bg-[#f1e5d8] text-[#3b241c]">
                 <Coffee size={22} />
               </span>
@@ -367,11 +371,11 @@ export default function Layout() {
             </h3>
 
             <div className="mt-5 flex flex-col gap-3.5 text-sm text-[#c8b8ac]">
-              <Link to="/" className="transition hover:text-white">
+              <Link href="/" className="transition hover:text-white">
                 Menu hôm nay
               </Link>
-              <Link to="/promotions" className="transition hover:text-white">Khuyến mãi</Link>
-              <Link to="/cart" className="transition hover:text-white">
+              <Link href="/promotions" className="transition hover:text-white">Khuyến mãi</Link>
+              <Link href="/cart" className="transition hover:text-white">
                 Giỏ hàng
               </Link>
             </div>

@@ -1,7 +1,7 @@
 import { authenticatedFetch } from "./session";
 
 const API_URL =
-  import.meta.env.VITE_API_URL ?? "http://localhost:3000/api";
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api";
 
 export interface AuthUser {
   id: string;

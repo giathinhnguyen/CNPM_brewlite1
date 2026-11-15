@@ -1,3 +1,5 @@
+"use client";
+
 import { useRef, useState, type FormEvent } from "react";
 import { CreditCard } from "lucide-react";
 import { Button } from "./ui";

@@ -30,7 +30,7 @@ services:
       DATABASE_URL: postgresql://brewlite:${POSTGRES_PASSWORD}@postgres:5432/brewlite
       JWT_SECRET: ${JWT_SECRET:?Set a production JWT secret}
       WEB_ORIGIN: https://${BREWLITE_DOMAIN:-brewlitesguu.duckdns.org}
-      GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:?Set the Google client ID}
+      GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-${VITE_GOOGLE_CLIENT_ID:?Set the Google client ID}}
       SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
       SMTP_PORT: ${SMTP_PORT:-465}
@@ -73,8 +73,8 @@ services:
       dockerfile: Dockerfile.prod
       target: web
       args:
-        VITE_API_URL: /api
-        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:?Set the Google client ID}
+        NEXT_PUBLIC_API_URL: /api
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-${VITE_GOOGLE_CLIENT_ID:?Set the Google client ID}}
     restart: unless-stopped
     logging: *logging
   caddy:
