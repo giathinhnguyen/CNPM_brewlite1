@@ -21,6 +21,7 @@ export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -53,7 +54,7 @@ export default function HomePage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [attempt]);
 
   const filtered = useMemo(
     () =>
@@ -167,7 +168,8 @@ export default function HomePage() {
               {loading ? (
                 <LoadingState label="Đang chuẩn bị menu hôm nay..." />
               ) : error ? (
-                <EmptyState title="Không thể tải menu" description={error} />
+                <EmptyState title="Không thể tải menu" description={error}
+                  action={<Button variant="secondary" onClick={() => setAttempt(value => value + 1)}>Thử lại</Button>} />
               ) : filtered.length > 0 ? (
                 <div className="max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-contain pr-2 [scrollbar-color:#bda99b_transparent] [scrollbar-width:thin]">
                   <div className="grid grid-cols-1 gap-5 min-[460px]:grid-cols-2 lg:grid-cols-3 xl:gap-7">

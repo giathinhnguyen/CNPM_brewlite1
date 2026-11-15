@@ -35,13 +35,19 @@ interface ApiTopping {
 }
 
 async function request<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`);
+  const timeout = AbortSignal.timeout(12_000);
+  try {
+    const response = await fetch(`${API_URL}${path}`, { signal: timeout });
 
-  if (!response.ok) {
-    throw new Error(`API lỗi: ${response.status}`);
+    if (!response.ok) {
+      throw new Error(`API lỗi: ${response.status}`);
+    }
+
+    return await response.json() as T;
+  } catch (error) {
+    if (timeout.aborted) throw new Error("Máy chủ phản hồi quá lâu. Vui lòng thử lại.", { cause: error });
+    throw error;
   }
-
-  return response.json() as Promise<T>;
 }
 
 export const catalogService = {
