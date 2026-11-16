@@ -1,5 +1,9 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
-import { VnpayGateway, vnpDate } from './vnpay.gateway.js';
+import {
+  VnpayGateway,
+  vnpDate,
+  unverifiedVnpayResult,
+} from './vnpay.gateway.js';
 import { zalopayMac } from './zalopay.gateway.js';
 
 export type RefundResult = {
@@ -29,6 +33,12 @@ function identifier(value: unknown): string | undefined {
   if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0)
     return String(value);
   return undefined;
+}
+
+class RefundHttpError extends ServiceUnavailableException {
+  constructor(readonly httpStatus: number) {
+    super('Chưa xác định được kết quả hoàn tiền.');
+  }
 }
 
 @Injectable()
@@ -64,10 +74,7 @@ export class RefundGateway {
       body: JSON.stringify(data),
       signal: AbortSignal.timeout(12000),
     });
-    if (!response.ok)
-      throw new ServiceUnavailableException(
-        'Chưa xác định được kết quả hoàn tiền.',
-      );
+    if (!response.ok) throw new RefundHttpError(response.status);
     return record(await response.json());
   }
   async submit(request: RefundRequest): Promise<RefundResult> {
@@ -80,24 +87,33 @@ export class RefundGateway {
         );
       const timestamp = Date.now();
       const description = 'Hoan tien don BrewLite';
-      const data = await this.post('https://sb-openapi.zalopay.vn/v2/refund', {
-        app_id: Number(appId),
-        m_refund_id: request.providerReference,
-        zp_trans_id: request.payment.transactionId,
-        amount: Number(request.amount),
-        timestamp,
-        description,
-        mac: zalopayMac(
-          [
-            appId,
-            request.payment.transactionId,
-            request.amount,
-            description,
-            timestamp,
-          ].join('|'),
-          key,
-        ),
-      });
+      let data: Record<string, unknown>;
+      try {
+        data = await this.post('https://sb-openapi.zalopay.vn/v2/refund', {
+          app_id: Number(appId),
+          m_refund_id: request.providerReference,
+          zp_trans_id: request.payment.transactionId,
+          amount: Number(request.amount),
+          timestamp,
+          description,
+          mac: zalopayMac(
+            [
+              appId,
+              request.payment.transactionId,
+              request.amount,
+              description,
+              timestamp,
+            ].join('|'),
+            key,
+          ),
+        });
+      } catch (error) {
+        // An explicit denial rejects this submission. A denied query stays
+        // uncertain because an earlier submission may have succeeded.
+        if (error instanceof RefundHttpError && error.httpStatus === 403)
+          return { state: 'FAILED', code: 'ZALO:HTTP403' };
+        throw error;
+      }
       // A refund accepted into a queue is not yet a completed refund.
       if (data.return_code === 1) return this.zaloResult(data, true);
       const definitive =
@@ -130,10 +146,7 @@ export class RefundGateway {
       vnp_OrderInfo: 'Hoan tien don BrewLite',
     };
     data.vnp_SecureHash = this.vnpay.sign(Object.values(data).join('|'));
-    const response = await this.post(
-      'https://sandbox.vnpayment.vn/merchant_webapi/api/transaction',
-      data,
-    );
+    const response = await this.vnpay.transaction(data, 12000);
     const fields = [
       'vnp_ResponseId',
       'vnp_Command',
@@ -168,9 +181,7 @@ export class RefundGateway {
       response.vnp_TxnRef !== request.payment.id ||
       String(response.vnp_Amount) !== data.vnp_Amount
     )
-      throw new ServiceUnavailableException(
-        'Kết quả hoàn tiền VNPay chưa xác minh được.',
-      );
+      throw unverifiedVnpayResult(response);
     return this.vnpayResult(response, true);
   }
   async query(request: RefundRequest): Promise<RefundResult> {

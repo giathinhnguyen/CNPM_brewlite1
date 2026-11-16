@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useRef, useState } from "react";
 import { Button, ButtonLink, InlineNotice } from "./ui";
 import { orderService, type Order } from "../services/orderService";
@@ -6,7 +8,7 @@ import { formatCurrency } from "../lib/utils";
 type RefundableOrder = Pick<
   Order,
   "id" | "status" | "paidAt" | "refunds" | "finalAmount"
->;
+> & { payments: { status: string; paymentMethod: string }[] };
 export default function RefundActions({
   order,
   onUpdated,
@@ -21,6 +23,7 @@ export default function RefundActions({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [configuredMode, setConfiguredMode] = useState<"GATEWAY" | "SIMULATION" | null>(null);
   const update = useRef(onUpdated);
   const running = useRef(false);
   useEffect(() => {
@@ -31,6 +34,20 @@ export default function RefundActions({
   const pending = order.status === "REFUND_PENDING";
   const refunded = order.status === "REFUNDED";
   const latest = order.refunds?.[0];
+  const paymentMethod = order.payments.find(payment => payment.status === "SUCCESS")?.paymentMethod;
+  const simulated = order.status === "PAID" ? configuredMode === "SIMULATION" && Number(order.finalAmount) > 0 : latest?.mode === "SIMULATION";
+  useEffect(() => {
+    if (order.status !== "PAID" || deadline <= Date.now()) return;
+    let active = true;
+    setConfiguredMode(null);
+    void orderService.config().then(config => {
+      const mode = paymentMethod === "VNPAY" || paymentMethod === "ZALOPAY" ? config.refundModes?.[paymentMethod] : undefined;
+      if (active) setConfiguredMode(mode ?? config.refundMode ?? "GATEWAY");
+    }).catch(() => {
+      if (active) setError("Chưa tải được chế độ hoàn tiền. Vui lòng tải lại trang.");
+    });
+    return () => { active = false; };
+  }, [order.id, order.status, deadline, paymentMethod]);
   useEffect(() => {
     if (order.status !== "PAID" || deadline <= Date.now()) return;
     const timer = window.setInterval(() => {
@@ -112,10 +129,13 @@ export default function RefundActions({
   return (
     <div className="mt-5 space-y-3 border-t border-[#eee6df] pt-4">
       {error && <InlineNotice type="error">{error}</InlineNotice>}
+      {simulated && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+        Hoàn tiền mô phỏng
+      </p>}
       {refunded ? (
         <>
           <p className="text-sm text-[#527155]">
-            {Number(order.finalAmount) === 0 ? "Đã hủy đơn đổi thưởng 0đ." : <>Đã hoàn {formatCurrency(Number(latest?.amount ?? order.finalAmount))} về phương thức đã thanh toán.</>}
+            {Number(order.finalAmount) === 0 ? "Đã hủy đơn đổi thưởng 0đ." : simulated ? <>Đã hủy đơn và mô phỏng hoàn {formatCurrency(Number(latest?.amount ?? order.finalAmount))}.</> : <>Đã hoàn {formatCurrency(Number(latest?.amount ?? order.finalAmount))} về phương thức đã thanh toán.</>}
             {" "}Nguyên liệu và điểm đổi thưởng đã được hoàn lại; điểm tích lũy từ đơn được thu hồi.
           </p>
           <p className="text-sm text-[#756359]">
@@ -131,7 +151,7 @@ export default function RefundActions({
       ) : pending ? (
         <>
           <p className="text-sm text-[#80654c]">
-            Đã tiếp nhận yêu cầu trong thời hạn. Cổng thanh toán đang xử lý hoàn{" "}
+            {simulated ? "Đang xử lý hủy đơn và hoàn tiền mô phỏng " : "Đã nhận yêu cầu hủy trong thời hạn. Đang chờ xác nhận hoàn "}
             {formatCurrency(Number(latest?.amount ?? order.finalAmount))}. Kho
             và điểm sẽ cập nhật sau khi có kết quả xác nhận.
           </p>
@@ -154,15 +174,14 @@ export default function RefundActions({
                 {String(remaining % 60).padStart(2, "0")} để hủy và hoàn tiền.
               </p>
               {!confirm ? (
-                <Button variant="secondary" onClick={() => setConfirm(true)}>
+                <Button disabled={configuredMode === null} variant="secondary" onClick={() => setConfirm(true)}>
                   Hủy đơn và hoàn tiền
                 </Button>
               ) : (
                 <div className="space-y-3 rounded-2xl bg-[#f7f3ee] p-4">
                   <p className="text-sm">
-                    Xác nhận hủy và hoàn toàn bộ{" "}
-                    {formatCurrency(Number(order.finalAmount))} qua cổng thanh
-                    toán? Điểm tích lũy từ đơn này sẽ được thu hồi.
+                    {simulated ? "Xác nhận hủy và mô phỏng hoàn toàn bộ " : "Xác nhận hủy và hoàn toàn bộ "}
+                    {formatCurrency(Number(order.finalAmount))}{simulated ? "?" : " qua cổng thanh toán?"} Điểm tích lũy từ đơn này sẽ được thu hồi.
                   </p>
                   <label className="block text-sm">
                     Lý do hủy (không bắt buộc)
@@ -203,8 +222,8 @@ export default function RefundActions({
           )}
         </>
       )}
-      {latest?.reason && (
-        <p className="text-xs text-[#8d7a70]">Lý do: {latest.reason}</p>
+      {latest?.reason && (pending || refunded || remaining > 0) && (
+        <p className="text-xs text-[#8d7a70]">Lý do yêu cầu hủy: {latest.reason}</p>
       )}
     </div>
   );

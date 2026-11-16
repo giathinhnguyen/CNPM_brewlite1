@@ -7,6 +7,9 @@ dist/
 **/dist/
 coverage/
 *.tsbuildinfo
+.next/
+**/.next/
+/apps/web/next-env.d.ts
 
 # Environment
 .env

@@ -13,6 +13,8 @@ export class RefundsController {
   @ApiOperation({
     summary:
       'Customer owner or administrator: cancel and fully refund within 2 minutes of paidAt',
+    description:
+      'The server selects GATEWAY or SIMULATION from VNPAY_REFUND_MODE or ZALOPAY_REFUND_MODE, falling back to REFUND_MODE, and persists it. SIMULATION does not send a bank refund. Existing requests retain their original mode.',
   })
   @ApiBody({
     schema: {

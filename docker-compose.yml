@@ -11,10 +11,6 @@ services:
       - --filter
       - web
       - dev
-      - --host
-      - 0.0.0.0
-      - --port
-      - "5173"
     ports:
       - "5173:5173"
     volumes:
@@ -23,9 +19,10 @@ services:
       - web_node_modules:/workspace/apps/web/node_modules
       - api_node_modules:/workspace/apps/api/node_modules
     environment:
-      VITE_API_URL: http://localhost:3000/api
-      VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
+      NEXT_PUBLIC_API_URL: http://localhost:3000/api
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-${VITE_GOOGLE_CLIENT_ID}}
       CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
     depends_on:
       api:
         condition: service_started
@@ -62,6 +59,10 @@ services:
       VNPAY_TMN_CODE: ${VNPAY_TMN_CODE:-}
       VNPAY_HASH_SECRET: ${VNPAY_HASH_SECRET:-}
       VNPAY_RETURN_URL: ${VNPAY_RETURN_URL:-http://localhost:5173/payments/return}
+      VNPAY_API_IP: ${VNPAY_API_IP:-127.0.0.1}
+      REFUND_MODE: ${REFUND_MODE:-gateway}
+      VNPAY_REFUND_MODE: ${VNPAY_REFUND_MODE:-}
+      ZALOPAY_REFUND_MODE: ${ZALOPAY_REFUND_MODE:-}
       ZALOPAY_APP_ID: ${ZALOPAY_APP_ID:-}
       ZALOPAY_KEY1: ${ZALOPAY_KEY1:-}
       ZALOPAY_KEY2: ${ZALOPAY_KEY2:-}

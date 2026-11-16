@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useState } from "react";
 import { orderService, type BankQrDetails } from "../services/orderService";
 import { Button } from "./ui";

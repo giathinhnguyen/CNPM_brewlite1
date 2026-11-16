@@ -2,7 +2,7 @@ import { authenticatedFetch } from './session.ts';
 import { syncGuestCart } from './guestCartSync.ts';
 import { getCartOwner } from './cartIntegrationService.ts';
 
-const API_BASE = import.meta.env?.VITE_API_URL || 'http://localhost:3000/api';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 const ACCOUNT_CART_API = `${API_BASE}/rewards/cart`;
 const LOCAL_STORAGE_KEY = 'brewlite_guest_cart';
 

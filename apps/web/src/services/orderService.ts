@@ -1,6 +1,6 @@
 import { authenticatedFetch } from "./session";
 import type { DrinkLevel, OrderStatus } from "../types";
-const API = import.meta.env.VITE_API_URL ?? "http://localhost:3000/api";
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api";
 export interface CheckoutItem {
   id: string;
   productSizeId: string;
@@ -34,7 +34,7 @@ export interface Order {
   orderCode: string;
   status: OrderStatus;
   paidAt: string | null;
-  refunds: { id: string; amount: string; reason: string; status: "PENDING" | "SUCCESS" | "FAILED"; providerRefundId: string | null; createdAt: string; updatedAt: string }[];
+  refunds: { id: string; amount: string; reason: string; status: "PENDING" | "SUCCESS" | "FAILED"; mode: "GATEWAY" | "SIMULATION"; providerRefundId: string | null; createdAt: string; updatedAt: string }[];
   createdAt: string;
   reservationExpiresAt: string;
   customerName: string;
@@ -139,6 +139,8 @@ export const orderService = {
       bankTransferDemoEnabled: boolean;
       cardDemoEnabled: boolean;
       bankQrConfigured: boolean;
+      refundMode: "GATEWAY" | "SIMULATION";
+      refundModes?: { VNPAY: "GATEWAY" | "SIMULATION"; ZALOPAY: "GATEWAY" | "SIMULATION" };
     }>("/payments/config"),
 };
 export const drinkPercent: Record<DrinkLevel, number> = {

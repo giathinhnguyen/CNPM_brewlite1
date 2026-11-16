@@ -1,5 +1,7 @@
+"use client";
+
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   Check,
@@ -32,7 +34,7 @@ interface RewardProduct {
 type LoadState = "loading" | "success" | "error";
 
 export default function RewardsRedemption() {
-  const navigate = useNavigate();
+  const router = useRouter();
   const { user } = useAuth();
   const [balance, setBalance] = useState<RewardBalance | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -124,7 +126,7 @@ export default function RewardsRedemption() {
       requestKey.current = null;
       setSelectedId(null);
       if (result.cartItem) {
-        navigate("/cart");
+        router.push("/cart");
         return;
       }
       setSuccess(

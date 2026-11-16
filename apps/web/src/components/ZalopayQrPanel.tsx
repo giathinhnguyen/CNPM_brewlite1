@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useState } from 'react';
 import { orderService } from '../services/orderService';
 import { formatCurrency } from '../lib/utils';

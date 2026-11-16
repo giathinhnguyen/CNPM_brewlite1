@@ -1,4 +1,7 @@
-import { Navigate, NavLink, Outlet, useNavigate } from "react-router-dom";
+"use client";
+
+import { useRouter } from "next/navigation";
+import { Navigate, NavLink } from "../components/Navigation";
 import {
   Boxes,
   Coffee,
@@ -36,8 +39,8 @@ const sections = [
     icon: TicketPercent,
   },
 ];
-export default function AdminLayout() {
-  const navigate = useNavigate();
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const { user, loading, logout } = useAuth();
   if (loading)
     return <p className="p-12 text-center">Đang kiểm tra quyền quản trị...</p>;
@@ -63,7 +66,7 @@ export default function AdminLayout() {
               className="flex items-center gap-2 rounded-full border border-white/25 px-4 py-2 text-sm hover:bg-white/10"
               onClick={() => {
                 logout();
-                navigate("/login", { replace: true });
+                router.replace("/login");
               }}
             >
               <LogOut size={16} />
@@ -98,7 +101,7 @@ export default function AdminLayout() {
             </nav>
           </aside>
           <main className="min-w-0">
-            <Outlet />
+            {children}
           </main>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { promotionService, PromotionApiError, type CartQuote } from "../services/promotionService";
+import { useClientReady } from "./useClientReady";
 
 export const APPLIED_PROMO_KEY = "brewlite_applied_promo";
 
@@ -12,7 +13,10 @@ export interface PromotionCartItem {
 }
 
 export function useCartPromotion(items: PromotionCartItem[], owner: string) {
-  const [appliedPromo, setAppliedPromo] = useState<string | null>(() => localStorage.getItem(APPLIED_PROMO_KEY));
+  const ready = useClientReady();
+  const [selection, setSelection] = useState<{ code: string | null } | null>(null);
+  const appliedPromo = selection ? selection.code : ready ? localStorage.getItem(APPLIED_PROMO_KEY) : null;
+  const setAppliedPromo = (code: string | null) => setSelection({ code });
   const [inputError, setInputError] = useState("");
   const [revision, setRevision] = useState(0);
   const [result, setResult] = useState<{ key: string; quote: CartQuote | null; error: string } | null>(null);
@@ -28,7 +32,7 @@ export function useCartPromotion(items: PromotionCartItem[], owner: string) {
   useEffect(() => {
     const controller = new AbortController();
     const request = JSON.parse(key);
-    if (!request.items.length) return () => controller.abort();
+    if (!ready || !request.items.length) return () => controller.abort();
     const isCurrent = () => !controller.signal.aborted && latestKey.current === key;
     const check = async () => {
       try {
@@ -58,7 +62,7 @@ export function useCartPromotion(items: PromotionCartItem[], owner: string) {
     };
     void check();
     return () => controller.abort();
-  }, [key]);
+  }, [key, ready]);
 
   useEffect(() => {
     const refresh = () => setRevision((value) => value + 1);

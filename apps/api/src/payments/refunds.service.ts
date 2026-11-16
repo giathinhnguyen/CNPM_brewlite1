@@ -18,6 +18,8 @@ import {
   validateObject,
 } from '../rewards/reward-transactions.js';
 import { RefundGateway, type RefundResult } from './refund.gateway.js';
+import { VnpayGatewayError } from './vnpay.gateway.js';
+import { configuredRefundMode } from './refund-mode.js';
 
 export const REFUND_WINDOW_MS = 120000;
 
@@ -112,7 +114,10 @@ export class RefundsService implements OnModuleInit, OnModuleDestroy {
           throw new ConflictException(
             'Không tìm thấy giao dịch cổng hợp lệ để hoàn tiền.',
           );
-        if (!order.finalAmount.isZero())
+        const mode = order.finalAmount.isZero()
+          ? 'GATEWAY'
+          : configuredRefundMode(payment?.paymentMethod);
+        if (!order.finalAmount.isZero() && mode === 'GATEWAY')
           this.gateway.assertConfigured(payment.paymentMethod);
         const id = randomUUID();
         const createdAt = new Date();
@@ -123,13 +128,17 @@ export class RefundsService implements OnModuleInit, OnModuleDestroy {
             requestedById: actorId,
             paymentId: payment?.id,
             amount: order.finalAmount,
+            mode,
             reason: reason.trim(),
             createdAt,
-            providerReference: this.gateway.reference(
-              id,
-              payment?.paymentMethod ?? 'INTERNAL',
-              createdAt,
-            ),
+            providerReference:
+              mode === 'SIMULATION'
+                ? `SIM${id.replaceAll('-', '')}`
+                : this.gateway.reference(
+                    id,
+                    payment?.paymentMethod ?? 'INTERNAL',
+                    createdAt,
+                  ),
           },
         });
         await tx.order.update({
@@ -158,6 +167,9 @@ export class RefundsService implements OnModuleInit, OnModuleDestroy {
       include: { payment: true },
     });
     if (refund.status !== 'PENDING') return;
+    // Persisted mode, never a global switch for already submitted gateway refunds.
+    if (refund.mode === 'SIMULATION')
+      return this.apply(id, { state: 'SUCCESS', code: 'SIMULATED_REFUND' });
     if (refund.amount.isZero())
       return this.apply(id, { state: 'SUCCESS', code: 'ZERO_AMOUNT' });
     if (!refund.payment) return;
@@ -181,9 +193,26 @@ export class RefundsService implements OnModuleInit, OnModuleDestroy {
           ? await this.gateway.submit(request)
           : await this.gateway.query(request);
       await this.apply(id, result);
-    } catch {
+    } catch (error) {
       // Never turn a timeout, malformed receipt, DB failure or unknown reply into a new refund.
-      this.logger.warn(`Refund ${id} awaits reconciliation`);
+      const code =
+        error instanceof VnpayGatewayError
+          ? error.code
+          : 'REFUND_PROCESSING_ERROR';
+      try {
+        await this.prisma.refund.updateMany({
+          where: { id, status: 'PENDING' },
+          data: {
+            rawResponse: {
+              code,
+              stage: claim.count === 1 ? 'submit' : 'query',
+            },
+          },
+        });
+      } catch {
+        // A local persistence failure must not trigger another money instruction.
+      }
+      this.logger.warn(`Refund ${id} awaits reconciliation (${code})`);
     }
   }
   private async apply(id: string, result: RefundResult) {
@@ -279,7 +308,10 @@ export class RefundsService implements OnModuleInit, OnModuleDestroy {
           data: {
             status: result.state,
             providerRefundId: result.providerRefundId,
-            rawResponse: { code: result.code },
+            rawResponse: {
+              code: result.code,
+              ...(refund.mode === 'SIMULATION' ? { simulated: true } : {}),
+            },
             lastCheckedAt: new Date(),
           },
         });

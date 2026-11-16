@@ -21,7 +21,10 @@ import { PromotionsService } from '../src/promotions/promotions.service.js';
 import { RefundGateway } from '../src/payments/refund.gateway.js';
 import { RefundsService } from '../src/payments/refunds.service.js';
 import { RefundsController } from '../src/payments/refunds.controller.js';
-import { VnpayGateway } from '../src/payments/vnpay.gateway.js';
+import {
+  VnpayGateway,
+  VnpayGatewayError,
+} from '../src/payments/vnpay.gateway.js';
 import { lockCustomer } from '../src/rewards/reward-transactions.js';
 import { recipeFixture } from './inventory-fixture.js';
 
@@ -104,24 +107,23 @@ describe('Paid-order cancellation and full refunds', () => {
     };
   }
   beforeEach(() => {
+    vi.stubEnv('REFUND_MODE', 'gateway');
+    vi.stubEnv('VNPAY_REFUND_MODE', '');
+    vi.stubEnv('ZALOPAY_REFUND_MODE', '');
     vi.stubEnv('VNPAY_TMN_CODE', 'TESTONLY');
     vi.stubEnv('VNPAY_HASH_SECRET', 'test-only');
     vi.stubEnv('ZALOPAY_APP_ID', '1234');
     vi.stubEnv('ZALOPAY_KEY1', 'test-only');
-    submitMock = vi
-      .spyOn(gateway, 'submit')
-      .mockResolvedValue({
-        state: 'SUCCESS',
-        code: 'TEST',
-        providerRefundId: '1234567',
-      });
-    queryMock = vi
-      .spyOn(gateway, 'query')
-      .mockResolvedValue({
-        state: 'SUCCESS',
-        code: 'TEST',
-        providerRefundId: '1234567',
-      });
+    submitMock = vi.spyOn(gateway, 'submit').mockResolvedValue({
+      state: 'SUCCESS',
+      code: 'TEST',
+      providerRefundId: '1234567',
+    });
+    queryMock = vi.spyOn(gateway, 'query').mockResolvedValue({
+      state: 'SUCCESS',
+      code: 'TEST',
+      providerRefundId: '1234567',
+    });
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -301,6 +303,179 @@ describe('Paid-order cancellation and full refunds', () => {
       (await prisma.user.findUniqueOrThrow({ where: { id: f.customer.id } }))
         .loyaltyPoints,
     ).toBe(550);
+  });
+  it('retains safe gateway diagnostics while keeping uncertain refunds pending and never resubmitting', async () => {
+    const f = await paid();
+    submitMock.mockRejectedValue(
+      new VnpayGatewayError(
+        'VNPAY_TIMEOUT',
+        'private details that must not be saved',
+      ),
+    );
+    queryMock.mockRejectedValue(
+      new VnpayGatewayError('VNPAY_UNVERIFIED_99', 'private provider data'),
+    );
+    const first = await refunds.request(f.customer.id, f.order.id, {});
+    const audit = await prisma.refund.findFirstOrThrow({
+      where: { orderId: f.order.id },
+    });
+    expect(audit.rawResponse).toEqual({
+      code: 'VNPAY_TIMEOUT',
+      stage: 'submit',
+    });
+    expect(first.status).toBe('REFUND_PENDING');
+    expect(JSON.stringify(first)).not.toContain('private details');
+    const second = await refunds.reconcile(f.customer.id, f.order.id);
+    const checked = await prisma.refund.findUniqueOrThrow({
+      where: { id: audit.id },
+    });
+    expect(checked.rawResponse).toEqual({
+      code: 'VNPAY_UNVERIFIED_99',
+      stage: 'query',
+    });
+    expect(second.status).toBe('REFUND_PENDING');
+    expect(second.inventoryStatus).toBe('DEDUCTED');
+    expect(checked.status).toBe('PENDING');
+    expect(submitMock).toHaveBeenCalledTimes(1);
+    expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+  it.each(['CUSTOMER', 'ADMIN'] as const)(
+    'completes an explicitly simulated %s refund once without calling a bank or inventing a bank reference',
+    async (role) => {
+      const f = await paid();
+      const actor = role === 'ADMIN' ? await user('ADMIN') : f.customer;
+      vi.stubEnv('REFUND_MODE', 'simulation');
+      vi.stubEnv('VNPAY_TMN_CODE', '');
+      vi.stubEnv('VNPAY_HASH_SECRET', '');
+      const [result] = await Promise.all([
+        refunds.request(actor.id, f.order.id, {}),
+        refunds.request(actor.id, f.order.id, {}),
+      ]);
+      expect(result.status).toBe('REFUNDED');
+      expect(result.inventoryStatus).toBe('RESTORED');
+      expect(result.refunds[0].mode).toBe('SIMULATION');
+      expect(result.refunds[0].providerRefundId).toBeNull();
+      const audit = await prisma.refund.findFirstOrThrow({
+        where: { orderId: f.order.id },
+      });
+      expect(audit.rawResponse).toEqual({
+        code: 'SIMULATED_REFUND',
+        simulated: true,
+      });
+      expect(audit.providerReference.startsWith('SIM')).toBe(true);
+      expect(
+        (
+          await prisma.ingredientStock.findUniqueOrThrow({
+            where: { ingredientId: f.ingredient.id },
+          })
+        ).onHand.toNumber(),
+      ).toBe(200);
+      expect(
+        (await prisma.user.findUniqueOrThrow({ where: { id: f.customer.id } }))
+          .loyaltyPoints,
+      ).toBe(500);
+      expect(
+        await prisma.loyaltyTransaction.count({
+          where: { orderId: f.order.id, type: 'REFUND_EARN' },
+        }),
+      ).toBe(1);
+      expect(
+        await prisma.refund.count({ where: { orderId: f.order.id } }),
+      ).toBe(1);
+      expect(
+        (
+          await prisma.payment.findFirstOrThrow({
+            where: { orderId: f.order.id },
+          })
+        ).status,
+      ).toBe('SUCCESS');
+      expect(submitMock).not.toHaveBeenCalled();
+      expect(queryMock).not.toHaveBeenCalled();
+    },
+  );
+  it('routes ZaloPay refunds to the wallet gateway while VNPay uses simulation', async () => {
+    const f = await paid('ZALOPAY');
+    vi.stubEnv('REFUND_MODE', 'simulation');
+    vi.stubEnv('VNPAY_REFUND_MODE', 'simulation');
+    vi.stubEnv('ZALOPAY_REFUND_MODE', 'gateway');
+    submitMock.mockResolvedValue({ state: 'PENDING', code: 'ZALO:1:1' });
+    const result = await refunds.request(f.customer.id, f.order.id, {});
+    expect(result.status).toBe('REFUND_PENDING');
+    expect(result.inventoryStatus).toBe('DEDUCTED');
+    expect(result.refunds[0].mode).toBe('GATEWAY');
+    expect(submitMock).toHaveBeenCalledTimes(1);
+    queryMock.mockResolvedValue({
+      state: 'SUCCESS',
+      code: 'ZALO:1:1',
+      providerRefundId: '12345',
+    });
+    expect((await refunds.reconcile(f.customer.id, f.order.id)).status).toBe(
+      'REFUNDED',
+    );
+    const card = await paid('VNPAY');
+    const simulated = await refunds.request(
+      card.customer.id,
+      card.order.id,
+      {},
+    );
+    expect(simulated.status).toBe('REFUNDED');
+    expect(simulated.refunds[0].mode).toBe('SIMULATION');
+    expect(submitMock).toHaveBeenCalledTimes(1);
+  });
+  it('does not convert an existing uncertain gateway refund when simulation is enabled later', async () => {
+    const f = await paid();
+    submitMock.mockResolvedValue({ state: 'PENDING', code: 'WAIT' });
+    queryMock.mockResolvedValue({ state: 'PENDING', code: 'WAIT' });
+    await refunds.request(f.customer.id, f.order.id, {});
+    vi.stubEnv('REFUND_MODE', 'simulation');
+    const result = await refunds.request(f.customer.id, f.order.id, {});
+    expect(result.status).toBe('REFUND_PENDING');
+    expect(result.inventoryStatus).toBe('DEDUCTED');
+    expect(result.refunds[0].mode).toBe('GATEWAY');
+    expect(submitMock).toHaveBeenCalledTimes(1);
+    expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+  it('retains persisted simulation mode when reconciling after the configuration returns to gateway', async () => {
+    const f = await paid();
+    await prisma.refund.create({
+      data: {
+        orderId: f.order.id,
+        requestedById: f.customer.id,
+        amount: f.order.finalAmount,
+        reason: 'Simulation recovery',
+        providerReference: 'SIM' + randomUUID().replaceAll('-', ''),
+        mode: 'SIMULATION',
+      },
+    });
+    await prisma.order.update({
+      where: { id: f.order.id },
+      data: { status: 'REFUND_PENDING' },
+    });
+    const result = await refunds.reconcile(f.customer.id, f.order.id);
+    expect(result.status).toBe('REFUNDED');
+    expect(result.refunds[0].mode).toBe('SIMULATION');
+    expect(submitMock).not.toHaveBeenCalled();
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+  it('keeps the two-minute cutoff and server-only mode selection in simulation', async () => {
+    const f = await paid();
+    const admin = await user('ADMIN');
+    vi.stubEnv('REFUND_MODE', 'simulation');
+    await expect(
+      refunds.request(f.customer.id, f.order.id, { mode: 'SIMULATION' }),
+    ).rejects.toThrow();
+    await prisma.order.update({
+      where: { id: f.order.id },
+      data: { paidAt: new Date(Date.now() - 120001) },
+    });
+    for (const actor of [f.customer, admin])
+      await expect(refunds.request(actor.id, f.order.id, {})).rejects.toThrow(
+        '2 phút',
+      );
+    expect(await prisma.refund.count({ where: { orderId: f.order.id } })).toBe(
+      0,
+    );
+    expect(submitMock).not.toHaveBeenCalled();
   });
   it('retains a rejected refund audit, and permits a new attempt only while the original window remains open', async () => {
     const f = await paid();
