@@ -7,7 +7,6 @@ import type { InventoryService } from '../inventory/inventory.service.js';
 import { RewardsCartController } from '../rewards/rewards-cart.controller.js';
 import { RewardsCartService } from '../rewards/rewards-cart.service.js';
 import { CartsController } from './carts.controller.js';
-import { CartsService } from './carts.service.js';
 
 const userId = '10000000-0000-4000-8000-000000000001';
 const otherUserId = '10000000-0000-4000-8000-000000000002';
@@ -37,7 +36,7 @@ function fixture(owner = userId) {
   const database = {
     $transaction: vi.fn(async (work: (client: unknown) => unknown) => work(tx)),
   } as unknown as PrismaService;
-  const service = new RewardsCartService(database, new CartsService(database), {} as PromotionsService, {} as InventoryService);
+  const service = new RewardsCartService(database, {} as PromotionsService, {} as InventoryService);
   return { state, tx, database, service, controller: new CartsController(service) };
 }
 

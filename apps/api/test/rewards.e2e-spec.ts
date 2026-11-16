@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, describe, expect, it } from 'vitest';
 import { RewardsService } from '../src/rewards/rewards.service.js';
-import { CartsService } from '../src/carts/carts.service.js';
 import { RewardsCartService } from '../src/rewards/rewards-cart.service.js';
 import { PromotionsService } from '../src/promotions/promotions.service.js';
 import type { PrismaService } from '../src/prisma/prisma.service.js';
@@ -15,7 +14,6 @@ describe('Đổi thưởng: transaction PostgreSQL và yêu cầu đồng thời
   const rewards = new RewardsService(database);
   const carts = new RewardsCartService(
     database,
-    new CartsService(database),
     new PromotionsService(database),
   );
   const cartQuotes = carts;

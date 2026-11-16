@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { BadRequestException } from '@nestjs/common';
 import { DrinkSize, PrismaClient } from '@prisma/client';
 import { describe, expect, it } from 'vitest';
-import { CartsService } from '../src/carts/carts.service.js';
 import { RewardsCartService } from '../src/rewards/rewards-cart.service.js';
 import { PromotionsService } from '../src/promotions/promotions.service.js';
 import type { PrismaService } from '../src/prisma/prisma.service.js';
@@ -57,7 +56,7 @@ describe('Giỏ hàng và khuyến mãi với PostgreSQL', () => {
             $transaction: async (work: (client: typeof tx) => unknown) =>
               work(tx),
           } as unknown as PrismaService;
-          const carts = new RewardsCartService(database, new CartsService(database), new PromotionsService(database));
+          const carts = new RewardsCartService(database, new PromotionsService(database));
           const promos = new PromotionsService(database);
           const input = {
             productId: product.id,
