@@ -23,15 +23,10 @@ API `/api/admin/*` kiểm tra JWT và quyền ADMIN hiện tại trong database 
 
 Các form gửi thời điểm cập nhật để phát hiện chỉnh sửa đồng thời. Kho khóa bản ghi và kiểm tra lại tồn đang giữ trong transaction. Đây là chức năng kiểm kê trực tiếp; chưa có phiếu nhập/xuất, lịch sử chỉnh sửa hoặc quản lý lô/hạn dùng.
 
-## Phần thanh toán tiếp theo
+## Thanh toán hiện tại
 
-Đồ án hiện dùng chuyển khoản mô phỏng: bật `BANK_TRANSFER_DEMO_ENABLED=true` ở môi trường phát triển. Khách tạo đơn rồi nhấn “Xác nhận đã chuyển khoản”; hệ thống cập nhật kho/điểm và ghi giao dịch `DEMO-...`. Lịch sử đơn phía khách và quản trị đều có nhãn mô phỏng. Không cần merchant VNPay để trình diễn luồng này. Chi tiết tại [hướng dẫn thanh toán demo](inventory-checkout.md#chuyển-khoản-demo-cho-đồ-án).
+Ứng dụng dùng thẻ nội địa VNPay sandbox và QR ZaloPay sandbox. Kết quả được backend xác minh, sau đó quyết toán nguyên liệu và điểm trong transaction. Đã bỏ các API tự xác nhận chuyển khoản và thẻ demo. Xem [kiểm thử thanh toán](TEST_PAYMENT_API.md) và [cấu hình ZaloPay](CHUAN_BI_ZALOPAY.md).
 
-Nếu tiếp tục tích hợp thanh toán qua cổng, thực hiện:
+Cấu hình VNPay: `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`, `VNPAY_RETURN_URL`. Return local phải đúng `http://localhost:5173/payments/return`. Sau đổi biến môi trường, tạo lại API bằng `docker compose up -d --no-deps --force-recreate api`.
 
-1. Cấu hình merchant VNPay sandbox trong `.env`: `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`, `VNPAY_RETURN_URL`. Khởi tạo lại API bằng `docker compose up -d api` để nhận biến mới.
-2. Chuẩn bị địa chỉ HTTPS công khai cho backend và cấu hình IPN `/api/payments/vnpay/ipn` với VNPay; return URL phải quay về `/payments/return` của frontend.
-3. Thử giao dịch thực trên sandbox: thành công, thất bại, đóng trình duyệt, thanh toán lại và phản hồi muộn. Đối chiếu trạng thái đơn, giao dịch, điểm và kho. Các test tự động với chữ ký giả lập không thay thế lượt thử này.
-4. Bổ sung màn hình đối soát đơn/thanh toán cho quản trị: giao dịch chờ, `needsReview`, kết quả QueryDR, xử lý thanh toán đến muộn và quy trình hoàn tiền. Hiện bốn màn hình theo wweb chưa có nghiệp vụ hoàn tiền hay đối soát quản trị.
-
-Không chuyển sang merchant thật trước khi hoàn tất các lượt kiểm thử sandbox. Hướng dẫn kho và VNPay chi tiết tại [inventory-checkout.md](inventory-checkout.md).
+Hoàn tiền có cấu hình GATEWAY/SIMULATION riêng. SIMULATION không chuyển tiền trở lại ví hay ngân hàng; cần trình bày đúng chế độ đang sử dụng.

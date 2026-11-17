@@ -103,35 +103,6 @@ export class PaymentsController {
   cancel(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     return this.payments.cancel(req.user.id, id);
   }
-  @Post('orders/:id/bank-transfer-demo/confirm')
-  @ApiBearerAuth()
-  @ApiUnauthorizedResponse({ description: 'JWT required, invalid or expired.' })
-  @UseGuards(AuthGuard)
-  confirmBankTransferDemo(
-    @Req() req: AuthenticatedRequest,
-    @Param('id') id: string,
-  ) {
-    return this.payments.confirmBankTransferDemo(req.user.id, id);
-  }
-  @Get('orders/:id/bank-qr')
-  @ApiBearerAuth()
-  @ApiUnauthorizedResponse({ description: 'JWT required, invalid or expired.' })
-  @UseGuards(AuthGuard)
-  bankQr(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
-    return this.payments.bankQr(req.user.id, id);
-  }
-  @ApiRequestBody('bankFailure')
-  @Post('orders/:id/bank-transfer-demo/fail')
-  @ApiBearerAuth()
-  @ApiUnauthorizedResponse({ description: 'JWT required, invalid or expired.' })
-  @UseGuards(AuthGuard)
-  failBankTransferDemo(
-    @Req() req: AuthenticatedRequest,
-    @Param('id') id: string,
-    @Body() body: unknown,
-  ) {
-    return this.payments.failBankTransferDemo(req.user.id, id, body);
-  }
   @Post('orders/:id/retry')
   @ApiBearerAuth()
   @ApiUnauthorizedResponse({ description: 'JWT required, invalid or expired.' })

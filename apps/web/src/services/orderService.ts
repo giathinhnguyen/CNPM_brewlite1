@@ -17,18 +17,6 @@ export interface CheckoutItem {
   rewardPoints: number | null;
   toppings: { id: string; name: string; price: number }[];
 }
-export type BankQrDetails =
-  | { configured: false }
-  | {
-      configured: true;
-      bankBin: string;
-      bankName: string;
-      accountNumber: string;
-      accountName: string;
-      amount: string;
-      content: string;
-      qrUrl: string;
-    };
 export interface Order {
   id: string;
   orderCode: string;
@@ -107,38 +95,21 @@ export const orderService = {
     request<Order>(`/payments/orders/${encodeURIComponent(id)}/cancel`, {}),
   reconcile: (id: string) =>
     request<Order>(`/payments/orders/${encodeURIComponent(id)}/reconcile`, {}),
-  confirmBankTransferDemo: (id: string) =>
-    request<Order>(
-      `/payments/orders/${encodeURIComponent(id)}/bank-transfer-demo/confirm`,
-      {},
-    ),
   pay: (orderId: string, idempotencyKey: string, channel: string) =>
     request<{ paymentUrl: string | null; status: string }>("/payments", {
       orderId,
       idempotencyKey,
       channel,
     }),
-  bankQr: (id: string) =>
-    request<BankQrDetails>(
-      `/payments/orders/${encodeURIComponent(id)}/bank-qr`,
-    ),
   zalopayQr: (id: string) => request<{ qrDataUrl: string; paymentUrl: string; amount: string; expiresAt: string }>(
     `/payments/orders/${encodeURIComponent(id)}/zalopay-qr`,
   ),
-  failBankTransferDemo: (id: string, idempotencyKey: string) =>
-    request<Order>(
-      `/payments/orders/${encodeURIComponent(id)}/bank-transfer-demo/fail`,
-      { idempotencyKey },
-    ),
   retry: (id: string) => request<Order>(`/payments/orders/${encodeURIComponent(id)}/retry`, {}),
   config: () =>
     request<{
       configured: boolean;
       zalopayConfigured: boolean;
       zalopaySandbox: boolean;
-      bankTransferDemoEnabled: boolean;
-      cardDemoEnabled: boolean;
-      bankQrConfigured: boolean;
       refundMode: "GATEWAY" | "SIMULATION";
       refundModes?: { VNPAY: "GATEWAY" | "SIMULATION"; ZALOPAY: "GATEWAY" | "SIMULATION" };
     }>("/payments/config"),

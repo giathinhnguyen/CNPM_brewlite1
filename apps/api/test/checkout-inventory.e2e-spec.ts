@@ -249,6 +249,10 @@ describe('Checkout, shared ingredients and verified VNPay', () => {
     const app=module.createNestApplication();app.setGlobalPrefix('api');await app.init();
     try{
       await request(app.getHttpServer()).post('/api/payments').send(input).expect(401);
+      for (const path of ['bank-transfer-demo/confirm', 'bank-transfer-demo/fail', 'card-demo/confirm']) {
+        await request(app.getHttpServer()).post(`/api/payments/orders/${order.id}/${path}`).send({}).expect(404);
+      }
+      await request(app.getHttpServer()).get(`/api/payments/orders/${order.id}/bank-qr`).expect(404);
       await request(app.getHttpServer()).get(`/api/payments/orders/${order.id}/zalopay-qr`).expect(401);
       await request(app.getHttpServer()).post(`/api/payments/orders/${order.id}/cancel`).send({}).expect(401);
       expect((await request(app.getHttpServer()).post('/api/payments/zalopay/callback').send({}).expect(200)).body.return_code).toBe(2);
@@ -444,70 +448,6 @@ describe('Checkout, shared ingredients and verified VNPay', () => {
     } finally { query.mockRestore(); }
   });
 
-  it('bank demo failure is idempotent, retries without reserving twice, and success earns only once', async () => {
-    const oldFlag = process.env.BANK_TRANSFER_DEMO_ENABLED;
-    process.env.BANK_TRANSFER_DEMO_ENABLED = 'true';
-    try {
-      const f = await fixture();
-      const order = await orders.create(f.user.id, body((await cart(f)).id));
-      const request = { idempotencyKey: randomUUID() };
-      await expect(payments.failBankTransferDemo((await customer()).id, order.id, request)).rejects.toThrow();
-      const results = await Promise.all([
-        payments.failBankTransferDemo(f.user.id, order.id, request),
-        payments.failBankTransferDemo(f.user.id, order.id, request),
-      ]);
-      expect(results[0].status).toBe('PAYMENT_FAILED');
-      expect(await prisma.payment.count({where:{orderId:order.id,status:'FAILED'}})).toBe(1);
-      expect(await prisma.loyaltyTransaction.count({where:{orderId:order.id}})).toBe(0);
-      let stock = await prisma.ingredientStock.findUniqueOrThrow({where:{ingredientId:f.ingredient.id}});
-      expect(stock.onHand.toNumber()).toBe(200);
-      expect(stock.reserved.toNumber()).toBe(20);
-      await expect(payments.confirmBankTransferDemo(f.user.id, order.id)).rejects.toThrow();
-      const retry = await payments.retry(f.user.id, order.id);
-      expect(retry.status).toBe('PENDING_PAYMENT');
-      expect(retry.reservationExpiresAt).toEqual(order.reservationExpiresAt);
-      expect((await payments.failBankTransferDemo(f.user.id, order.id, request)).status).toBe('PENDING_PAYMENT');
-      const paid = await payments.confirmBankTransferDemo(f.user.id, order.id);
-      expect(paid.status).toBe('PAID');
-      await payments.confirmBankTransferDemo(f.user.id, order.id);
-      await expect(payments.failBankTransferDemo(f.user.id, order.id, {idempotencyKey:randomUUID()})).rejects.toThrow();
-      expect(await prisma.loyaltyTransaction.count({where:{orderId:order.id,type:'EARN'}})).toBe(1);
-      stock = await prisma.ingredientStock.findUniqueOrThrow({where:{ingredientId:f.ingredient.id}});
-      expect(stock.onHand.toNumber()).toBe(180);
-      expect(stock.reserved.toNumber()).toBe(0);
-    } finally {
-      if (oldFlag === undefined) delete process.env.BANK_TRANSFER_DEMO_ENABLED;
-      else process.env.BANK_TRANSFER_DEMO_ENABLED = oldFlag;
-    }
-  });
-
-  it('failed bank orders can cancel or expire; pending VNPay and production cannot be failed manually', async () => {
-    const oldFlag = process.env.BANK_TRANSFER_DEMO_ENABLED;
-    const oldEnv = process.env.NODE_ENV;
-    process.env.BANK_TRANSFER_DEMO_ENABLED = 'true';
-    try {
-      const f = await fixture();
-      const order = await orders.create(f.user.id, body((await cart(f)).id));
-      process.env.NODE_ENV = 'production';
-      await expect(payments.failBankTransferDemo(f.user.id, order.id, {idempotencyKey:randomUUID()})).rejects.toThrow();
-      process.env.NODE_ENV = 'test';
-      await payments.failBankTransferDemo(f.user.id, order.id, {idempotencyKey:randomUUID()});
-      await prisma.order.update({where:{id:order.id},data:{createdAt:new Date(Date.now()-60000),reservationExpiresAt:new Date(Date.now()-1000)}});
-      await expect(payments.retry(f.user.id, order.id)).rejects.toThrow();
-      expect((await payments.reconcile(f.user.id, order.id)).status).toBe('EXPIRED');
-      expect((await prisma.ingredientStock.findUniqueOrThrow({where:{ingredientId:f.ingredient.id}})).reserved.toNumber()).toBe(0);
-      const next = await orders.create(f.user.id, body((await cart(f)).id));
-      await payments.create(f.user.id,{orderId:next.id,idempotencyKey:randomUUID(),channel:'card'},'127.0.0.1');
-      await expect(payments.failBankTransferDemo(f.user.id,next.id,{idempotencyKey:randomUUID()})).rejects.toThrow('đối soát');
-      await expect(payments.create(f.user.id,{orderId:next.id,idempotencyKey:randomUUID(),channel:'wallet'},'127.0.0.1')).rejects.toThrow();
-    } finally {
-      if (oldFlag === undefined) delete process.env.BANK_TRANSFER_DEMO_ENABLED;
-      else process.env.BANK_TRANSFER_DEMO_ENABLED = oldFlag;
-      if (oldEnv === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = oldEnv;
-    }
-  });
-
   it('signed return can settle without a login session and only exposes a minimal receipt', async () => {
     const f = await fixture();
     const order = await orders.create(f.user.id, body((await cart(f)).id));
@@ -540,18 +480,13 @@ describe('Checkout, shared ingredients and verified VNPay', () => {
       await payments.retry(f.user.id, order.id);
       expect(returned.inventoryStatus).toBe('RESERVED');
       expect(query).not.toHaveBeenCalled();
-      const oldFlag = process.env.CARD_DEMO_ENABLED;
-      process.env.CARD_DEMO_ENABLED = 'true';
-      try {
-        const paid = await payments.confirmCardDemo(f.user.id, order.id);
-        expect(paid.status).toBe('PAID');
-        const replay = await payments.handleReturn(f.user.id, cancelled);
-        expect(replay.status).toBe('PAID');
-        expect(replay.payments.filter(p => p.status === 'SUCCESS')).toHaveLength(1);
-      } finally {
-        if (oldFlag === undefined) delete process.env.CARD_DEMO_ENABLED;
-        else process.env.CARD_DEMO_ENABLED = oldFlag;
-      }
+      const next = await payments.create(f.user.id,
+        { orderId: order.id, idempotencyKey: randomUUID(), channel: 'card' }, '127.0.0.1');
+      const paid = await payments.handleReturn(f.user.id, callback(next.id));
+      expect(paid.status).toBe('PAID');
+      const replay = await payments.handleReturn(f.user.id, cancelled);
+      expect(replay.status).toBe('PAID');
+      expect(replay.payments.filter(p => p.status === 'SUCCESS')).toHaveLength(1);
     } finally { query.mockRestore(); }
   });
 
@@ -597,9 +532,8 @@ describe('Checkout, shared ingredients and verified VNPay', () => {
     ).toBe(200);
   });
 
-  it('demo bank confirmation settles paid and reward items exactly once under duplicate requests', async () => {
+  it('signed VNPay confirmation settles paid and reward items exactly once under duplicate requests', async () => {
     vi.stubEnv('NODE_ENV', 'test');
-    vi.stubEnv('BANK_TRANSFER_DEMO_ENABLED', 'true');
     try {
       const f = await fixture();
       const item = await cart(f);
@@ -614,16 +548,19 @@ describe('Checkout, shared ingredients and verified VNPay', () => {
         ...body(item.id),
         itemIds: [item.id, redeemed.cartItem!.id],
       });
+      const payment = await payments.create(f.user.id,
+        { orderId: order.id, idempotencyKey: randomUUID(), channel: 'card' }, '127.0.0.1');
+      const signed = callback(payment.id);
       const results = await Promise.all([
-        payments.confirmBankTransferDemo(f.user.id, order.id),
-        payments.confirmBankTransferDemo(f.user.id, order.id),
+        payments.handleReturn(f.user.id, signed),
+        payments.handleReturn(f.user.id, signed),
       ]);
       expect(results.every((o) => o.status === 'PAID')).toBe(true);
       const final = await orders.owned(f.user.id, order.id);
       expect(final.inventoryStatus).toBe('DEDUCTED');
       expect(final.payments).toHaveLength(1);
-      expect(final.payments[0].paymentMethod).toBe('BANK_TRANSFER');
-      expect(final.payments[0].transactionId).toMatch(/^DEMO-/);
+      expect(final.payments[0].paymentMethod).toBe('VNPAY');
+      expect(final.payments[0].transactionId).toBe(signed.vnp_TransactionNo);
       const stock = await prisma.ingredientStock.findUniqueOrThrow({
         where: { ingredientId: f.ingredient.id },
       });
@@ -643,141 +580,33 @@ describe('Checkout, shared ingredients and verified VNPay', () => {
     }
   });
 
-  it('blocks demo confirmation in production, without flag, on foreign/expired/cancelled orders or pending VNPay', async () => {
-    vi.stubEnv('NODE_ENV', 'test');
-    vi.stubEnv('BANK_TRANSFER_DEMO_ENABLED', 'true');
-    try {
-      const f = await fixture();
-      const order = await orders.create(f.user.id, body((await cart(f)).id));
-      const other = await customer();
-      await expect(
-        payments.confirmBankTransferDemo(other.id, order.id),
-      ).rejects.toThrow('Không tìm thấy');
-      vi.stubEnv('NODE_ENV', 'production');
-      expect(payments.config().bankTransferDemoEnabled).toBe(false);
-      await expect(
-        payments.confirmBankTransferDemo(f.user.id, order.id),
-      ).rejects.toThrow('chỉ dùng');
-      vi.stubEnv('NODE_ENV', 'test');
-      vi.stubEnv('BANK_TRANSFER_DEMO_ENABLED', 'false');
-      await expect(
-        payments.confirmBankTransferDemo(f.user.id, order.id),
-      ).rejects.toThrow('chỉ dùng');
-      vi.stubEnv('BANK_TRANSFER_DEMO_ENABLED', 'true');
-      await payments.create(
-        f.user.id,
-        { orderId: order.id, idempotencyKey: randomUUID(), channel: 'card' },
-        '127.0.0.1',
-      );
-      await expect(
-        payments.confirmBankTransferDemo(f.user.id, order.id),
-      ).rejects.toThrow('đối soát');
-      const expired = await orders.create(f.user.id, body((await cart(f)).id));
-      await prisma.order.update({
-        where: { id: expired.id },
-        data: {
-          createdAt: new Date(Date.now() - 120000),
-          reservationExpiresAt: new Date(Date.now() - 60000),
-        },
-      });
-      await expect(
-        payments.confirmBankTransferDemo(f.user.id, expired.id),
-      ).rejects.toThrow('hết hạn');
-      const cancelled = await orders.create(
-        f.user.id,
-        body((await cart(f)).id),
-      );
-      await orders.cancel(f.user.id, cancelled.id);
-      await expect(
-        payments.confirmBankTransferDemo(f.user.id, cancelled.id),
-      ).rejects.toThrow('hết hạn');
-      expect(
-        await prisma.payment.count({
-          where: {
-            order: { userId: f.user.id },
-            paymentMethod: 'BANK_TRANSFER',
-          },
-        }),
-      ).toBe(0);
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
-
   it('allows a new phone on the next order after payment and accepts common phone separators', async () => {
     vi.stubEnv('NODE_ENV', 'test');
-    vi.stubEnv('BANK_TRANSFER_DEMO_ENABLED', 'true');
     try {
       const f = await fixture();
       const first = await orders.create(f.user.id, body((await cart(f)).id));
-      await payments.confirmBankTransferDemo(f.user.id, first.id);
+      const firstPayment = await payments.create(f.user.id,
+        { orderId: first.id, idempotencyKey: randomUUID(), channel: 'card' }, '127.0.0.1');
+      await payments.handleReturn(f.user.id, callback(firstPayment.id));
       const second = await orders.create(f.user.id, {
         ...body((await cart(f)).id),
         customerPhone: '0987654321',
       });
       expect(second.customerPhone).toBe('0987654321');
-      await payments.confirmBankTransferDemo(f.user.id, second.id);
+      const secondPayment = await payments.create(f.user.id,
+        { orderId: second.id, idempotencyKey: randomUUID(), channel: 'card' }, '127.0.0.1');
+      await payments.handleReturn(f.user.id, callback(secondPayment.id));
       const third = await orders.create(f.user.id, {
         ...body((await cart(f)).id),
         customerPhone: '+84 (912) 345-678',
       });
       expect(third.customerPhone).toBe('0912345678');
+      await expect(orders.create(f.user.id, {
+        ...body((await cart(f)).id), customerPhone: '1234121431',
+      })).rejects.toThrow('Số điện thoại');
       expect((await orders.owned(f.user.id, first.id)).customerPhone).toBe(
         '0901234567',
       );
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
-
-  it('uses the owned order amount for QR and settles demo cards only once', async () => {
-    vi.stubEnv('NODE_ENV', 'test');
-    vi.stubEnv('CARD_DEMO_ENABLED', 'true');
-    vi.stubEnv('BANK_TRANSFER_DEMO_ENABLED', 'true');
-    vi.stubEnv('BANK_QR_BIN', '970436');
-    vi.stubEnv('BANK_QR_BANK_NAME', 'Vietcombank');
-    vi.stubEnv('BANK_QR_ACCOUNT_NUMBER', 'TEST123');
-    vi.stubEnv('BANK_QR_ACCOUNT_NAME', 'TEST RECEIVER');
-    try {
-      const f = await fixture();
-      const order = await orders.create(f.user.id, body((await cart(f)).id));
-      const qr = await payments.bankQr(f.user.id, order.id);
-      expect(qr.configured).toBe(true);
-      if (!qr.configured) throw new Error('QR missing');
-      expect(new URL(qr.qrUrl).searchParams.get('amount')).toBe('50000');
-      expect(new URL(qr.qrUrl).searchParams.get('addInfo')).toBe(
-        order.orderCode,
-      );
-      await expect(
-        payments.bankQr((await customer()).id, order.id),
-      ).rejects.toThrow('Không tìm thấy');
-      vi.stubEnv('NODE_ENV', 'production');
-      await expect(
-        payments.confirmCardDemo(f.user.id, order.id),
-      ).rejects.toThrow('chỉ dùng');
-      vi.stubEnv('NODE_ENV', 'test');
-      const results = await Promise.all([
-        payments.confirmCardDemo(f.user.id, order.id),
-        payments.confirmCardDemo(f.user.id, order.id),
-      ]);
-      expect(results.every((o) => o.status === 'PAID')).toBe(true);
-      const final = await orders.owned(f.user.id, order.id);
-      expect(final.payments).toHaveLength(1);
-      expect(final.payments[0].paymentMethod).toBe('CARD_DEMO');
-      expect(final.inventoryStatus).toBe('DEDUCTED');
-      expect(final.loyaltyTxs.filter((t) => t.type === 'EARN')).toHaveLength(1);
-      await expect(
-        payments.confirmBankTransferDemo(f.user.id, order.id),
-      ).rejects.toThrow();
-      await expect(payments.bankQr(f.user.id, order.id)).rejects.toThrow(
-        'thời gian',
-      );
-      await expect(
-        orders.create(f.user.id, {
-          ...body((await cart(f)).id),
-          customerPhone: '1234121431',
-        }),
-      ).rejects.toThrow('Số điện thoại');
     } finally {
       vi.unstubAllEnvs();
     }

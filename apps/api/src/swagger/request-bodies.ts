@@ -192,7 +192,6 @@ const bodies = {
     idempotencyKey: uuid,
     channel: { type: 'string', enum: ['card', 'zalopay'] },
   }),
-  bankFailure: object({ idempotencyKey: uuid }),
   vnpay,
   zalopay: {
     type: 'object', additionalProperties: true,

@@ -37,7 +37,7 @@ docker compose restart api
 docker compose exec -T api pnpm --filter api test:e2e
 ```
 
-Các test tích hợp tạo dữ liệu riêng rồi dọn dẹp; chạy trên database phát triển/test. `.env` phải tự cấu hình theo `.env.example`; không lấy khóa thật hoặc JWT secret từ GitHub. Các API demo cũ cần `BANK_TRANSFER_DEMO_ENABLED=true` trong development. ZaloPay dùng App ID/Key1/Key2 sandbox; query dùng được trên local trước khi có callback công khai. Xem `CHUAN_BI_ZALOPAY.md`. Sau khi sửa biến môi trường, chạy `docker compose up -d --force-recreate api`. VNPay cần mã merchant, hash secret riêng và Return URL đúng origin web đang dùng.
+Các test tích hợp tạo dữ liệu riêng rồi dọn dẹp; chạy trên database phát triển/test. `.env` phải tự cấu hình theo `.env.example`; không lấy khóa thật hoặc JWT secret từ GitHub. ZaloPay dùng App ID/Key1/Key2 sandbox; query dùng được trên local trước khi có callback công khai. Xem `CHUAN_BI_ZALOPAY.md`. Sau khi sửa biến môi trường, chạy `docker compose up -d --force-recreate api`. VNPay cần mã merchant, hash secret riêng và Return URL đúng origin web đang dùng.
 
 ## Test API bằng Postman
 

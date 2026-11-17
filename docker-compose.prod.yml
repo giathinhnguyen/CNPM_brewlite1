@@ -49,8 +49,6 @@ services:
       ZALOPAY_KEY2: ${ZALOPAY_KEY2:-}
       ZALOPAY_RETURN_URL: https://${BREWLITE_DOMAIN:-brewlitesguu.duckdns.org}/payments/zalopay/return
       ZALOPAY_CALLBACK_URL: https://${BREWLITE_DOMAIN:-brewlitesguu.duckdns.org}/api/payments/zalopay/callback
-      BANK_TRANSFER_DEMO_ENABLED: "false"
-      CARD_DEMO_ENABLED: "false"
       REWARDS_TEST_PAYMENTS: "false"
       DEPLOY_SEED_EMPTY_DATABASE: ${DEPLOY_SEED_EMPTY_DATABASE:-false}
       DEPLOY_ADMIN_EMAIL: ${DEPLOY_ADMIN_EMAIL:-}

@@ -80,33 +80,9 @@ docker compose exec -T api pnpm --filter api exec tsx prisma/check-inventory.ts
 
 Bảng hiển thị tên nguyên liệu, đơn vị, tồn thực tế, lượng đang giữ cho đơn chưa thanh toán và lượng có thể dùng (`on_hand - reserved`). Đây là lệnh chỉ đọc, không nạp thêm nguyên liệu. Số ly có thể pha là số nhỏ nhất của phần nguyên từng lượng nguyên liệu khả dụng chia cho định lượng tương ứng; các món dùng chung nguyên liệu nên không cộng số ly của các món với nhau.
 
-## Cấu hình VNPay sandbox
+## Thanh toán hiện tại
 
-### Chuyển khoản demo cho đồ án
-
-Bật `BANK_TRANSFER_DEMO_ENABLED=true` trong `.env`, rồi chạy `docker compose up -d api`. Chế độ này chỉ hoạt động khi `NODE_ENV=development` hoặc `test`; ở production luôn bị chặn, kể cả khi cờ được bật.
-
-Khách chọn “Chuyển khoản ngân hàng” ở checkout, tạo đơn rồi nhấn “Xác nhận đã chuyển khoản” trên trang chi tiết thanh toán. Đây là mô phỏng, không cần số tài khoản ngân hàng, QR hay chuyển tiền thật. Backend ghi giao dịch BANK_TRANSFER thành công với mã `DEMO-...` và metadata `simulated=true`, đồng thời trừ kho, hoàn tất đổi thưởng và cộng điểm trong một transaction. Gửi lặp chỉ xử lý một lần. Đơn hết hạn/đã hủy, đơn của người khác hoặc đơn có giao dịch VNPay chưa đối soát không được xác nhận bằng nút này. Đơn tổng 0đ vẫn hoàn tất tự động.
-
-Giao diện khách và lịch sử đơn trong quản trị ghi rõ thanh toán mô phỏng. Endpoint demo là `POST /api/payments/orders/:id/bank-transfer-demo/confirm`, bắt buộc đăng nhập và sở hữu đơn. Để tắt, đặt cờ về `false` và tạo lại container API. Không dùng nút tự xác nhận để xác nhận tiền thật đã vào tài khoản.
-
-### QR chuyển khoản theo số tiền đơn
-
-Không cần VNPay để tạo QR. Cấu hình `BANK_QR_BIN`, `BANK_QR_BANK_NAME`, `BANK_QR_ACCOUNT_NUMBER`, `BANK_QR_ACCOUNT_NAME` trong `.env` rồi chạy `docker compose up -d api`. Vietcombank có BIN `970436`; thông tin tài khoản nhận tiền chỉ đặt trong cấu hình máy.
-
-`GET /api/payments/orders/:id/bank-qr` chỉ trả QR cho chủ đơn đang chờ thanh toán và còn hạn. Số tiền lấy từ `finalAmount` sau khuyến mãi/đổi thưởng, nội dung lấy từ mã đơn trên máy chủ. Ảnh sử dụng [VietQR Quick Link](https://www.vietqr.io/qr-dong) định dạng SVG; trình duyệt gửi thông tin nhận tiền, số tiền và mã đơn tới dịch vụ ảnh VietQR. Khi dịch vụ ảnh lỗi vẫn hiển thị thông tin nhận tiền và nút thử lại.
-
-QR trỏ đến tài khoản thật nhưng không tự kiểm chứng tiền đã vào. Khi thử đồ án không cần chuyển tiền: dùng nút xác nhận mô phỏng. Thanh toán thật cần cơ chế đối soát riêng.
-
-### Thẻ mô phỏng
-
-Bật `CARD_DEMO_ENABLED=true`, chạy migration bằng `docker compose exec -T api pnpm --filter api exec prisma migrate deploy`, sinh client bằng `docker compose exec -T api pnpm --filter api exec prisma generate`, rồi tạo lại API bằng `docker compose up -d api`.
-
-Chọn “Thẻ ngân hàng (demo)” khi checkout hoặc ở chi tiết đơn. Nút “Điền dữ liệu test” điền số `4111 1111 1111 1111`, chủ thẻ `DEMO USER`, hạn `12/30`, CVV `123`. Form chỉ chấp nhận bộ mẫu này; không dùng thẻ thật. Dữ liệu thẻ không gửi lên API, không lưu vào storage/database. Endpoint `POST /api/payments/orders/:id/card-demo/confirm` chỉ xác nhận đơn bằng ID, ghi phương thức `CARD_DEMO`, mã `DEMO-...`; chỉ hoạt động ở development/test và có kiểm tra quyền, thời hạn, giao dịch đang chờ, chống xử lý trùng như chuyển khoản demo.
-
-Ô số điện thoại không có hướng dẫn cố định. Nếu nhập sai sẽ báo ngay dưới ô; chấp nhận 10 chữ số bắt đầu bằng 0 và dạng +84, có thể dùng khoảng trắng/dấu gạch. Mỗi đơn lưu số riêng, không thay đổi số của đơn đã thanh toán.
-
-### VNPay (tùy chọn)
+### Thẻ nội địa VNPay sandbox
 
 Điền các giá trị merchant vào `.env` trên máy, không commit HashSecret:
 
@@ -116,7 +92,7 @@ VNPAY_HASH_SECRET=
 VNPAY_RETURN_URL=http://localhost:5173/payments/return
 ```
 
-Sau khi điền chạy `docker compose up -d api`. Đăng ký IPN công khai trỏ tới `/api/payments/vnpay/ipn` của backend với VNPay. Localhost không nhận IPN từ Internet; có thể dùng HTTPS tunnel do nhóm quản lý. Khi chưa có IPN, nút Kiểm tra trạng thái gọi QueryDR từ backend. Không tự công khai server hoặc đăng ký merchant trong triển khai này.
+Sau khi điền chạy `docker compose up -d --no-deps --force-recreate api`. Đăng ký IPN công khai trỏ tới `/api/payments/vnpay/ipn` của backend với VNPay. Localhost không nhận IPN từ Internet; có thể dùng HTTPS tunnel do nhóm quản lý. Khi chưa có IPN, nút Kiểm tra trạng thái gọi QueryDR từ backend. Không tự công khai server hoặc đăng ký merchant trong triển khai này.
 
 Nếu thiếu merchant/secret, checkout báo thanh toán chưa sẵn sàng và không giả lập thành công. Có thể kiểm thử đơn chỉ có quà 0đ; kiểm thử chữ ký và cạnh tranh được thực hiện bằng dữ liệu fixture riêng. Cần tài khoản sandbox hợp lệ để thử giao dịch đầu cuối thực sự trên VNPay.
 
@@ -132,3 +108,7 @@ docker compose exec -T web pnpm --filter web build
 ```
 
 Test tích hợp tạo dữ liệu riêng rồi xóa, không sử dụng tài khoản khách thật. Các ca chính gồm nguyên liệu dùng chung, đường/đá, size thiếu công thức, hai khách tranh tồn, idempotency checkout/payment, callback giả/sai tiền/lặp, giữ snapshot sau sửa công thức, timeout, hủy/đơn hết hạn, callback đến muộn, quà 0đ, giá thay đổi và quyền xem đơn.
+
+### QR ZaloPay sandbox
+
+Checkout hỗ trợ quét QR ZaloPay và thẻ nội địa VNPay. Xem [cấu hình ZaloPay](CHUAN_BI_ZALOPAY.md). Chuyển khoản tự xác nhận, VietQR và thẻ demo đã ngừng hỗ trợ. Các migration và tên phương thức cũ trong dữ liệu lịch sử được giữ để bảo toàn giao dịch đã ghi nhận. Hoàn tiền mô phỏng là cấu hình riêng của nghiệp vụ hoàn tiền, không phải một phương thức thanh toán.

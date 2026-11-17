@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -18,7 +17,6 @@ import {
   validateObject,
 } from '../rewards/reward-transactions.js';
 import { VnpayGateway } from './vnpay.gateway.js';
-import { bankQrDetails, bankQrReceiver } from './bank-qr.js';
 import { ZalopayPaymentsService } from './zalopay-payments.service.js';
 import { configuredRefundMode } from './refund-mode.js';
 
@@ -49,71 +47,10 @@ export class PaymentsService implements OnModuleInit, OnModuleDestroy {
       configured: this.gateway.configured(),
       zalopayConfigured: this.zalopay.configured(),
       zalopaySandbox: true,
-      bankTransferDemoEnabled: this.bankTransferDemoEnabled(),
-      bankQrConfigured: Boolean(bankQrReceiver()),
-      cardDemoEnabled: false,
       refundMode: configuredRefundMode(),
       refundModes: { VNPAY: configuredRefundMode('VNPAY'), ZALOPAY: configuredRefundMode('ZALOPAY') },
     };
   }
-  private bankTransferDemoEnabled() {
-    return (
-      ['development', 'test'].includes(process.env.NODE_ENV ?? '') &&
-      process.env.BANK_TRANSFER_DEMO_ENABLED === 'true'
-    );
-  }
-  private cardDemoEnabled() {
-    return (
-      ['development', 'test'].includes(process.env.NODE_ENV ?? '') &&
-      process.env.CARD_DEMO_ENABLED === 'true'
-    );
-  }
-  async bankQr(userId: string, orderId: string) {
-    const order = await this.orders.owned(userId, orderId);
-    if (
-      order.status !== 'PENDING_PAYMENT' ||
-      order.inventoryStatus !== 'RESERVED' ||
-      order.reservationExpiresAt <= new Date() ||
-      order.finalAmount.lte(0)
-    )
-      throw new ConflictException('Đơn không còn trong thời gian thanh toán.');
-    if (order.payments.some((p) => p.status !== 'FAILED' || p.needsReview))
-      throw new ConflictException('Đơn đang có giao dịch cần đối soát.');
-    return bankQrDetails(order.finalAmount.toFixed(0), order.orderCode);
-  }
-
-  async confirmBankTransferDemo(userId: string, orderId: string) {
-    return this.confirmDemo(userId, orderId, 'BANK_TRANSFER');
-  }
-  async failBankTransferDemo(userId: string, orderId: string, body: unknown) {
-    if (!this.bankTransferDemoEnabled())
-      throw new ForbiddenException('Thanh toán mô phỏng chưa được bật.');
-    const input = validateObject(body, ['idempotencyKey']);
-    if (!isUuid(orderId) || !isUuid(input.idempotencyKey))
-      throw new BadRequestException('Mã yêu cầu không hợp lệ');
-    const key = `bank-failure:${userId}:${input.idempotencyKey.toLowerCase()}`;
-    return this.prisma.$transaction(async tx => {
-      await lockCustomer(tx, userId);
-      const order = await this.orders.owned(userId, orderId, tx);
-      const previous = await tx.payment.findUnique({ where: { idempotencyKey: key } });
-      if (previous) {
-        if (previous.orderId !== order.id) throw new ConflictException('Mã yêu cầu đã dùng cho đơn khác');
-        return order;
-      }
-      if (!['PENDING_PAYMENT', 'PAYMENT_FAILED'].includes(order.status) ||
-          order.inventoryStatus !== 'RESERVED' || order.reservationExpiresAt <= new Date())
-        throw new ConflictException('Đơn không còn trong thời gian thanh toán');
-      if (order.payments.some(p => p.status !== 'FAILED' || p.needsReview))
-        throw new ConflictException('Giao dịch cần đối soát, không thể mô phỏng thất bại');
-      if (order.status === 'PAYMENT_FAILED') return order;
-      await tx.payment.create({ data: { orderId: order.id, idempotencyKey: key,
-        paymentMethod: 'BANK_TRANSFER', amount: order.finalAmount, status: 'FAILED',
-        rawResponse: { simulated: true, source: 'customer-demo-failure', confirmedBy: userId } } });
-      await tx.order.update({ where: { id: order.id }, data: { status: 'PAYMENT_FAILED' } });
-      return this.orders.owned(userId, order.id, tx);
-    });
-  }
-
   async retry(userId: string, orderId: string) {
     return this.prisma.$transaction(async tx => {
       await lockCustomer(tx, userId);
@@ -126,71 +63,6 @@ export class PaymentsService implements OnModuleInit, OnModuleDestroy {
       await tx.order.update({ where: { id: order.id }, data: { status: 'PENDING_PAYMENT' } });
       return this.orders.owned(userId, order.id, tx);
     });
-  }
-  async confirmCardDemo(userId: string, orderId: string) {
-    return this.confirmDemo(userId, orderId, 'CARD_DEMO');
-  }
-  private async confirmDemo(
-    userId: string,
-    orderId: string,
-    method: 'BANK_TRANSFER' | 'CARD_DEMO',
-  ) {
-    if (
-      !(method === 'BANK_TRANSFER'
-        ? this.bankTransferDemoEnabled()
-        : this.cardDemoEnabled())
-    )
-      throw new ForbiddenException(
-        'Xác nhận thanh toán mô phỏng chỉ dùng cho bản demo được bật cấu hình.',
-      );
-    if (!isUuid(orderId)) throw new BadRequestException('Mã đơn không hợp lệ');
-    return this.prisma.$transaction(
-      async (tx) => {
-        await lockCustomer(tx, userId);
-        const order = await this.orders.owned(userId, orderId, tx);
-        const idempotencyKey = `${method === 'BANK_TRANSFER' ? 'bank-demo' : 'card-demo'}:${order.id}`;
-        const previous = await tx.payment.findUnique({
-          where: { idempotencyKey },
-        });
-        if (previous?.status === 'SUCCESS' && order.status === 'PAID')
-          return order;
-        if (
-          order.status !== 'PENDING_PAYMENT' ||
-          order.inventoryStatus !== 'RESERVED' ||
-          order.reservationExpiresAt <= new Date()
-        )
-          throw new ConflictException(
-            'Đơn đã hết hạn hoặc không còn chờ thanh toán.',
-          );
-        if (order.payments.some((p) => p.status !== 'FAILED' || p.needsReview))
-          throw new ConflictException(
-            'Đơn đang có giao dịch cần đối soát. Không thể xác nhận mô phỏng.',
-          );
-        const paymentId = randomUUID();
-        await tx.payment.create({
-          data: {
-            id: paymentId,
-            orderId: order.id,
-            idempotencyKey,
-            paymentMethod: method,
-            amount: order.finalAmount,
-            status: 'SUCCESS',
-            transactionId: `DEMO-${paymentId}`,
-            rawResponse: {
-              simulated: true,
-              source:
-                method === 'BANK_TRANSFER'
-                  ? 'customer-demo-confirmation'
-                  : 'test-card-demo',
-              confirmedBy: userId,
-            },
-          },
-        });
-        await this.orders.markPaid(tx, order.id);
-        return this.orders.owned(userId, order.id, tx);
-      },
-      { timeout: 15000 },
-    );
   }
   async orderForPayment(userId: string, id: string) {
     if (!isUuid(id)) throw new BadRequestException('Mã giao dịch không hợp lệ');
