@@ -336,7 +336,7 @@ describe('Checkout, shared ingredients and verified VNPay', () => {
     ).rejects.toThrow('công thức');
   });
 
-  it('two customers competing for shared stock cannot oversell; failed transaction leaves cart intact', async () => {
+  it('INT-T01 order_trans reserves stock once and rolls back the other checkout', async () => {
     const f = await fixture(1);
     const other = await customer();
     const a = await cart(f),
@@ -345,10 +345,15 @@ describe('Checkout, shared ingredients and verified VNPay', () => {
       orders.create(f.user.id, body(a.id)),
       orders.create(other.id, body(b.id)),
     ]);
-    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
-    expect(
-      await prisma.cartItem.count({ where: { id: { in: [a.id, b.id] } } }),
-    ).toBe(1);
+    expect(results.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+    const [winner, loser] = results[0].status === 'fulfilled' ? [a, b] : [b, a];
+    const savedOrders = await prisma.order.findMany({
+      where: { userId: { in: [f.user.id, other.id] } },
+      select: { userId: true, status: true },
+    });
+    expect(savedOrders).toEqual([{ userId: winner.userId, status: 'PENDING_PAYMENT' }]);
+    expect(await prisma.cartItem.findUnique({ where: { id: winner.id } })).toBeNull();
+    expect(await prisma.cartItem.findUnique({ where: { id: loser.id } })).toMatchObject({ quantity: 1 });
     const stock = await prisma.ingredientStock.findUniqueOrThrow({
       where: { ingredientId: f.ingredient.id },
     });
